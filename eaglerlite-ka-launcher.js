@@ -1,18 +1,4 @@
-/*
 
-EaglerLite Client Launcher - KA Port External Launcher - v2.1
-
-This file is loaded by EaglerLite.v2.ka.html via dynamic <script> creation.
-It contains all the launcher logic (buildKASrcdoc, launchGame, UI bindings,
-optimizer source, etc.) that previously lived inline in the KA HTML.
-
-Hosting: host this file on GitHub + jsDelivr, then set the URL in the KA HTML.
-
-EaglerLite Client created and compiled by PlanetDoge
-EaglerLite's code is liscensed under the Apache 2.0 terms. Redistribution of code without attribution is prohibited.
-GitHub Link: https://github.com/PlanetDogeCodes/EaglerLite
-
-*/
 'use strict';
 
 var SRC_URL_112_FALLBACKS = [
