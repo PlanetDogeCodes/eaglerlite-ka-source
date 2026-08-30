@@ -85,7 +85,14 @@
         try { ctrl = new AbortController(); } catch (_) { ctrl = { abort: function () {} }; }
         var timer = setTimeout(function () { try { ctrl.abort(); } catch (_) {} }, timeoutMs);
         return fetch(url, { signal: ctrl.signal, cache: 'no-store' })
-          .then(function (r) { clearTimeout(timer); if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+          .then(function (r) {
+            clearTimeout(timer);
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            var ct = '';
+            try { ct = (r.headers.get('content-type') || '').toLowerCase(); } catch (_) {}
+            if (ct && ct.indexOf('text/html') !== -1) throw new Error('Wrong MIME: ' + ct);
+            return r.text();
+          })
           .catch(function (err) { clearTimeout(timer); return tryUrl(idx + 1); });
       }
       return tryUrl(0);
@@ -109,7 +116,6 @@
       } catch (_) {}
     }
     function cleanup() {
-      try { stopTitleCycle(); } catch (_) {}
       for (var i = 0; i < _activeTimers.length; i++) {
         try { clearTimeout(_activeTimers[i]); clearInterval(_activeTimers[i]); } catch (_) {}
       }
@@ -142,15 +148,19 @@
 
     function setStatus(msg, cls) {
       var el = document.getElementById('statusText');
+      if (!el) return;
       el.textContent = msg;
       el.className = cls || '';
       pushTimeline(msg, cls);
     }
     function setProgress(v) {
-      document.getElementById('progressFill').style.width = Math.round(Math.max(0, Math.min(1, v)) * 100) + '%';
+      var el = document.getElementById('progressFill');
+      if (!el) return;
+      el.style.width = Math.round(Math.max(0, Math.min(1, v)) * 100) + '%';
     }
     function setBusy(on) {
       var btn = document.getElementById('launchBtn');
+      if (!btn) return;
       btn.disabled = on;
       btn.textContent = on ? 'Loading…' : 'Launch Game';
     }
@@ -393,6 +403,7 @@
         '<div id="toastStack"></div>\n',
         '<scr' + 'ipt>\n',
         '(function(){\n',
+        '  try {\n',
         '  try { eval("function KAInfiniteLoopProtect(){}"); } catch(e) {}\n',
         '  function toast(m,k){var s=document.getElementById("toastStack");if(!s){try{console.log("[KA]",m);}catch(_){}return;}var t=document.createElement("div");t.className="toast-item "+(k||"");t.textContent=String(m);s.appendChild(t);requestAnimationFrame(function(){t.classList.add("show")});setTimeout(function(){t.classList.remove("show");setTimeout(function(){if(t.parentNode)t.parentNode.removeChild(t)},300)},k==="err"?5000:2500)}\n',
         '  function decodeAssets(){\n',
@@ -418,6 +429,7 @@
         '    } catch(e) { toast("launch failed: "+e.message,"err"); try{window.parent.postMessage({type:"eaglerlite-fail",reason:"launch error"},"*");}catch(_){} }\n',
         '  });\n',
         '  try { window.eaglerLiteCfg = ' + cfgJson + '; } catch(e) {}\n',
+        '  } catch(_readyErr) { try { window.parent.postMessage({type:"eaglerlite-fail",reason:"readiness error: "+((_readyErr&&_readyErr.message)?_readyErr.message:String(_readyErr))},"*"); } catch(_) {} }\n',
         '})();\n',
         '</scr' + 'ipt>\n',
         '</body>\n</html>\n'
@@ -438,10 +450,7 @@
         var tabName = (document.getElementById('tabName').value.trim()) || 'Eaglercraft';
         var sprintKey = (document.getElementById('sprintKey').value.trim()) || 'ControlLeft';
         var favicon = document.getElementById('favicon').value.trim();
-        var faviconPreset = (document.getElementById('faviconPreset') && document.getElementById('faviconPreset').value) || 'custom';
-        var stripReferrer = document.getElementById('ch_stripReferrer') ? document.getElementById('ch_stripReferrer').checked : true;
-        var titleCycle = document.getElementById('ch_titleCycle') ? document.getElementById('ch_titleCycle').checked : false;
-        var titleCycleList = (document.getElementById('titleCycleList') && document.getElementById('titleCycleList').value) || '';
+        var stripReferrer = document.getElementById('ch_stripReferrer') ? (document.getElementById('ch_stripReferrer').value === 'true') : true;
         var cfg = {
           p1: document.getElementById('ch1').checked, p3: document.getElementById('ch3').checked, p4: document.getElementById('ch4').checked,
           p5: document.getElementById('ch5').checked, p6: document.getElementById('ch6').checked, p7: document.getElementById('ch11').checked,
@@ -459,10 +468,10 @@
           maxFPS: parseInt(document.getElementById('maxFPS').value.trim(), 10) || 120
         };
         try { localStorage.setItem('eaglerLiteLastLaunch_v2', JSON.stringify(cfg)); } catch(_) {}
-        setProgress(0.3); setStatus(pastedContent ? 'Building KA game frame from pasted source...' : 'Building KA game frame...', 'load');
+        setProgress(0.3); setStatus((pastedContent && typeof pastedContent === 'string') ? 'Building KA game frame from pasted source...' : 'Building KA game frame...', 'load');
         var srcdoc;
-        if (pastedContent) {
-          var _readyScript = '<scr' + 'ipt>(function(){function _r(){try{window.parent.postMessage({type:"eaglerlite-ready"},"*")}catch(e){}}if(document.readyState==="complete"||document.readyState==="interactive"){setTimeout(_r,800)}else{document.addEventListener("DOMContentLoaded",function(){setTimeout(_r,800)});window.addEventListener("load",function(){setTimeout(_r,800)})}})()</scr' + 'ipt>';
+        if (pastedContent && typeof pastedContent === 'string') {
+          var _readyScript = '</scr' + 'ipt><scr' + 'ipt>(function(){try{function _r(){try{window.parent.postMessage({type:"eaglerlite-ready"},"*")}catch(e){}}if(document.readyState==="complete"||document.readyState==="interactive"){setTimeout(_r,800)}else{document.addEventListener("DOMContentLoaded",function(){setTimeout(_r,800)});window.addEventListener("load",function(){setTimeout(_r,800)})}}catch(_rErr){try{window.parent.postMessage({type:"eaglerlite-fail",reason:"readiness error: "+((_rErr&&_rErr.message)?_rErr.message:String(_rErr))},"*")}catch(_){}}})()</scr' + 'ipt>';
           srcdoc = String(pastedContent).replace(/^<\?xml[^>]*\?>\s*/i, '') + _readyScript;
         } else {
           srcdoc = buildKASrcdoc(cfg, { stripReferrer: stripReferrer, tabName: tabName });
@@ -485,7 +494,10 @@
         setProgress(1); setStatus('Game frame injected - click inside the frame to focus keyboard.', 'ok');
         logActivity('Game launched via inline KA iframe', 'ok');
         pushHistory('ka-iframe', 'ok', 'in-page sandboxed frame');
+        var readyFired = false;
         var readyTimer = _trackTimer(setTimeout(function () {
+          if (readyFired) return;
+          readyFired = true;
           setStatus('Launch timed out - try the manual paste fallback', 'err');
           _revealManualPaste();
           logActivity('Launch timed out after 60s', 'err');
@@ -493,12 +505,17 @@
         var readyHandler = function (e) {
           try {
             if (!e || !e.data || typeof e.data !== 'object') return;
+            if (e.source !== frame.contentWindow) return;
             if (e.data.type === 'eaglerlite-ready') {
+              if (readyFired) return;
+              readyFired = true;
               try { clearTimeout(readyTimer); _untrackTimer(readyTimer); } catch (_) {}
               try { window.removeEventListener('message', readyHandler); } catch (_) {}
               setStatus('Launched 1.12.2!', 'ok');
               logActivity('Eaglercraft 1.12.2 ready', 'ok');
             } else if (e.data.type === 'eaglerlite-fail') {
+              if (readyFired) return;
+              readyFired = true;
               try { clearTimeout(readyTimer); _untrackTimer(readyTimer); } catch (_) {}
               try { window.removeEventListener('message', readyHandler); } catch (_) {}
               setStatus('Launch failed - ' + (e.data.reason || 'unknown'), 'err');
@@ -523,8 +540,6 @@
             logActivity('Game frame closed by user', 'load');
           });
         }
-
-        if (titleCycle) startTitleCycle(window, tabName, titleCycleList);
       } catch (e) {
         setStatus('Error launching: ' + e.message, 'err');
         logActivity('Launch error: ' + e.message, 'err');
@@ -534,7 +549,7 @@
       }
     }
 
-    _on('launchBtn', 'click', launchGame);
+    _on('launchBtn', 'click', function (e) { if (e && e.preventDefault) e.preventDefault(); launchGame(); });
     _on('downloadBtn', 'click', downloadLauncher);
     _on('tabName', 'keydown', function(e) { if (e.key === 'Enter') launchGame(); });
 
@@ -1120,25 +1135,6 @@
       } catch(_) { return Promise.resolve(null); }
     }
 
-    var _titleCycleTimer = null;
-    function startTitleCycle(win, primaryTitle, csvList) {
-      stopTitleCycle();
-      if (!win || !csvList) return;
-      var titles = String(csvList).split(',').map(function(s) { return s.trim(); }).filter(Boolean);
-      if (titles.length === 0) titles = [primaryTitle];
-      if (titles.indexOf(primaryTitle) === -1) titles.unshift(primaryTitle);
-      var idx = 0;
-      _titleCycleTimer = setInterval(function() {
-        try {
-          idx = (idx + 1) % titles.length;
-          win.document.title = titles[idx];
-        } catch(_) { stopTitleCycle(); }
-      }, 5000);
-    }
-    function stopTitleCycle() {
-      if (_titleCycleTimer) { clearInterval(_titleCycleTimer); _titleCycleTimer = null; }
-    }
-
     function buildReferrerMeta(strip) {
       return strip ? '<meta name="referrer" content="no-referrer">\n' : '';
     }
@@ -1165,12 +1161,6 @@
       if (e.key === 's' || e.key === 'S') { e.preventDefault(); saveConfig(); return; }
       if (e.key === 'r' || e.key === 'R') { e.preventDefault(); resetConfig(); return; }
       if (e.key === 'd' || e.key === 'D') { e.preventDefault(); downloadLauncher(); return; }
-    });
-
-    _on('editTitleCycleBtn', 'click', function() {
-      var inp = document.getElementById('titleCycleList');
-      if (!inp) return;
-      inp.style.display = inp.style.display === 'none' ? 'block' : 'none';
     });
 
     (function () {
