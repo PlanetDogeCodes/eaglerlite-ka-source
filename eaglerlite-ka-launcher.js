@@ -391,13 +391,13 @@
       var parts = [
         '<!DOCTYPE html>\n',
         '<html>\n<head>\n',
-        '<title>Spin-off of "Eaglercraft Singleplayer Test"</title>\n',
+        '<title>' + escapeHtml(opts.tabName || 'EaglerLite 1.12.2') + '</title>\n',
         '<meta charset="UTF-8">\n',
         '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n',
         refMeta,
         '<scr' + 'ipt src="' + runtime + '"></scr' + 'ipt>\n',
         '<scr' + 'ipt src="' + assets + '"></scr' + 'ipt>\n',
-        '<style>html,body{margin:0;padding:0;width:100vw;height:100vh;overflow:hidden;background:#000000}#toastStack{position:fixed;bottom:8px;left:50%;transform:translateX(-50%);z-index:100000001;display:flex;flex-direction:column-reverse;gap:4px;pointer-events:none;max-width:90vw}.toast-item{background:#222;color:#eee;padding:6px 12px;border-radius:6px;font:13px monospace;opacity:0;transition:opacity .2s;max-width:90vw}.toast-item.show{opacity:1}.toast-item.err{background:#400;border:1px solid #f55}.toast-item.ok{background:#040;border:1px solid #5f5}</style>\n',
+        '<style>html,body{margin:0;padding:0;width:100vw;height:100vh;overflow:hidden;background:#000000}#toastStack{position:fixed;bottom:8px;left:50%;transform:translateX(-50%);z-index:100000001;display:flex;flex-direction:column-reverse;pointer-events:none;max-width:90vw}.toast-item{margin-top:4px;background:#222;color:#eee;padding:6px 12px;border-radius:6px;font:13px monospace;opacity:0;transition:opacity .2s;max-width:90vw}.toast-item.show{opacity:1}.toast-item.err{background:#400;border:1px solid #f55}.toast-item.ok{background:#040;border:1px solid #5f5}</style>\n',
         '</head>\n',
         '<body id="game_frame">\n',
         '<div id="toastStack"></div>\n',
@@ -807,8 +807,7 @@
     });
 
     function applyTheme(theme) {
-      var valid = { dark:1, light:1, midnight:1, terminal:1 };
-      if (!valid[theme]) theme = 'dark';
+      if (theme !== 'dark') theme = 'dark';
       document.documentElement.setAttribute('data-theme', theme);
       var dots = document.querySelectorAll('.theme-dot');
       for (var i = 0; i < dots.length; i++) {
@@ -1274,12 +1273,16 @@
           if (document.getElementById('autoLaunchOverlay')) return;
           var overlay = document.createElement('div');
           overlay.id = 'autoLaunchOverlay';
-          Object.assign(overlay.style, {
+          var autoStyles = {
             position: 'fixed', top: '0', left: '0', width: '100%', height: '100%',
             background: 'rgba(0,0,0,0.95)', zIndex: '99999', display: 'flex',
             flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
             cursor: 'pointer', userSelect: 'none', fontFamily: "'Courier New', monospace"
-          });
+          };
+          var k;
+          for (k in autoStyles) {
+            if (Object.prototype.hasOwnProperty.call(autoStyles, k)) overlay.style[k] = autoStyles[k];
+          }
           overlay.innerHTML =
             '<div style="text-align:center;color:#fff;">' +
               '<div style="font-size:2.2rem;font-weight:800;letter-spacing:0.12em;margin-bottom:0.6rem;">CLICK TO LAUNCH</div>' +
