@@ -5,6 +5,7 @@
  */
 (function () {
   'use strict';
+  try { window.__eaglerliteLauncherVersion = 'v2.1'; } catch (_) {}
   try {
     if (!window.__eaglerliteErrors) window.__eaglerliteErrors = [];
     if (typeof window.__eaglerliteReportError !== 'function') {
@@ -134,18 +135,6 @@
     ];
     var SRC_URL_112 = SRC_URL_112_FALLBACKS[0];
 
-    var _warmupDone = false;
-    function _doLazyWarmup() {
-      if (_warmupDone) return;
-      _warmupDone = true;
-      try { probeProxyHealth(); } catch(_) {}
-    }
-    try {
-      document.addEventListener('click', _doLazyWarmup, { once: true });
-      document.addEventListener('keydown', _doLazyWarmup, { once: true });
-      document.addEventListener('touchstart', _doLazyWarmup, { once: true });
-    } catch(_) {}
-
     function setStatus(msg, cls) {
       var el = document.getElementById('statusText');
       if (!el) return;
@@ -163,21 +152,6 @@
       if (!btn) return;
       btn.disabled = on;
       btn.textContent = on ? 'Loading…' : 'Launch Game';
-    }
-
-    function decodeBlob(blob) {
-      return new Promise(function(res, rej) {
-        var fr = new FileReader();
-        fr.onload = function() {
-          var s = fr.result || '';
-
-          if (s.charCodeAt(0) === 0xFEFF) s = s.substring(1);
-          res(s);
-        };
-        fr.onerror = function() { rej(fr.error); };
-        try { fr.readAsText(blob, 'utf-8'); }
-        catch(_) { fr.readAsText(blob); }
-      });
     }
 
     var ACTIVITY_KEY = 'eaglerLiteActivity_v2';
@@ -277,10 +251,6 @@
         if (cBtn) { cBtn.disabled = false; cBtn.textContent = 'Launch Game'; }
         var cTl = cloneRoot.querySelector('#timeline');
         if (cTl) cTl.innerHTML = '<div class="timeline-empty">No activity yet.</div>';
-        var cHl = cloneRoot.querySelector('#healthLabel');
-        if (cHl) cHl.textContent = 'Proxy: checking\u2026';
-        var cHd = cloneRoot.querySelector('#healthDot');
-        if (cHd) cHd.className = 'health-dot';
         var cEmbed = cloneRoot.querySelector('#gameEmbed');
         if (cEmbed) cEmbed.className = 'hidden';
         var cEmbedBar = cloneRoot.querySelector('#embedCloseBar');
@@ -323,60 +293,6 @@
                sandbox.indexOf('allow-popups-to-escape-sandbox') === -1 ||
                sandbox.indexOf('allow-same-origin') === -1;
       } catch(e) { return true; }
-    }
-
-    function probeProxyHealth() {
-  try {
-    var dot = document.getElementById('healthDot');
-    var label = document.getElementById('healthLabel');
-    if (!dot || !label) return;
-    dot.className = 'health-dot load';
-    label.textContent = 'Proxy: checking\u2026';
-    var proxyUrlEl = document.getElementById('wsProxyUrl');
-    var proxyUrl = (proxyUrlEl && proxyUrlEl.value && proxyUrlEl.value.trim()) || 'wss://eaglerlite-proxy.onrender.com/';
-    var httpsUrl = proxyUrl.replace(/^wss:/, 'https:').replace(/^ws:/, 'http:').replace(/\/$/, '') + '/health';
-    var delays = [250, 750, 2000];
-    var retryIdx = 0;
-    function showReachable(r) {
-      if (r.ok) {
-        dot.className = 'health-dot ok';
-        label.textContent = 'Proxy: \u2713 healthy';
-      } else if (r.status) {
-        dot.className = 'health-dot err';
-        label.textContent = 'Proxy: HTTP ' + r.status;
-      } else {
-        dot.className = 'health-dot load';
-        label.textContent = 'Proxy: unreachable (singleplayer still works)';
-      }
-    }
-    function attempt() {
-      _probeOnce(httpsUrl, 5000).then(function (r) {
-        if (r.ok || r.status) { showReachable(r); }
-        else if (retryIdx < delays.length) {
-          var delay = delays[retryIdx]; retryIdx++;
-          setTimeout(attempt, delay);
-        } else {
-          dot.className = 'health-dot load';
-          label.textContent = 'Proxy: unreachable (singleplayer still works)';
-          try { console.warn('[EaglerLite] Proxy unreachable after 3 retries; singleplayer still works'); } catch (_) {}
-        }
-      });
-    }
-    attempt();
-  } catch (e) {
-    try { if (window.__eaglerliteReportError) window.__eaglerliteReportError(e, 'probeProxyHealth'); } catch (_) {}
-  }
-}
-
-    function _probeOnce(httpsUrl, timeoutMs) {
-      return new Promise(function (resolve) {
-        var ctrl;
-        try { ctrl = new AbortController(); } catch (_) { ctrl = { abort: function () {} }; }
-        var timer = setTimeout(function () { try { ctrl.abort(); } catch (_) {} }, timeoutMs);
-        fetch(httpsUrl, { method: 'GET', signal: ctrl.signal, cache: 'no-store' })
-          .then(function (r) { clearTimeout(timer); resolve({ ok: r.ok, status: r.status }); })
-          .catch(function (err) { clearTimeout(timer); resolve({ ok: false, err: err }); });
-      });
     }
 
     function buildKASrcdoc(cfg, opts) {
@@ -438,6 +354,7 @@
     }
 
     function launchGame(pastedContent) {
+      if (pastedContent && typeof pastedContent !== 'string') pastedContent = null;
       var launchBtn = document.getElementById('launchBtn');
       if (!launchBtn) {
         try { if (window.__eaglerliteReportError) window.__eaglerliteReportError(new Error('launchBtn not found'), 'launchGame'); } catch (_) {}
@@ -462,7 +379,7 @@
           fpsLimiter: document.getElementById('ch21').checked, tabName: tabName, sprintKey: sprintKey, favicon: favicon,
           panicLink: (document.getElementById('panicLink').value.trim()) || 'https://classroom.google.com',
           panicKey: (document.getElementById('panicKey').value.trim()) || 'Equal', gameVersion: '1.12.2',
-          wsProxyUrl: (document.getElementById('wsProxyUrl').value.trim()) || '',
+          wsProxyUrl: '',
           reconnectDelay: parseInt(document.getElementById('reconnectDelay').value.trim(), 10) || 2500,
           reconnectRetries: parseInt(document.getElementById('reconnectRetries').value.trim(), 10) || 1,
           maxFPS: parseInt(document.getElementById('maxFPS').value.trim(), 10) || 120
@@ -552,6 +469,7 @@
     _on('launchBtn', 'click', function (e) { if (e && e.preventDefault) e.preventDefault(); launchGame(); });
     _on('downloadBtn', 'click', downloadLauncher);
     _on('tabName', 'keydown', function(e) { if (e.key === 'Enter') launchGame(); });
+    try { window.launchGame = launchGame; } catch (_) {}
 
     var CONFIG_KEY = 'eaglerLiteConfig_v1';
     var DEFAULTS = {
@@ -571,7 +489,7 @@
       sprintKey: 'ControlLeft',
       panicLink: 'https://classroom.google.com',
       panicKey: 'Equal',
-      wsProxyUrl: 'wss://eaglerlite-proxy.onrender.com/',
+      wsProxyUrl: '',
       reconnectDelay: '2500',
       reconnectRetries: '1',
       maxFPS: '120',
@@ -1007,12 +925,6 @@
       showToast('Banner dismissed for 7 days');
     });
 
-    setTimeout(function() { try { probeProxyHealth(); } catch(_) {} }, 1500);
-
-    _on('wsProxyUrl', 'change', function() {
-      setTimeout(probeProxyHealth, 100);
-    });
-
     (function() {
       try {
         var ind = document.getElementById('autoModeIndicator');
@@ -1093,45 +1005,6 @@
           '</span>';
         panel.appendChild(row);
       }
-    }
-
-    function fetchWithRetry(url, ms, retries) {
-      var attempt = 0;
-      function tryOnce() {
-        attempt++;
-        var ctrl = new AbortController();
-        var t = setTimeout(function() { ctrl.abort(); }, ms);
-        return fetch(url, { signal: ctrl.signal, cache: 'force-cache' })
-          .then(function(r) { clearTimeout(t); if (!r.ok) throw new Error('HTTP ' + r.status); return r; })
-          .catch(function(e) {
-            clearTimeout(t);
-            if (attempt >= retries) throw e;
-            var delay = Math.min(4000, Math.pow(2, attempt - 1) * 1000);
-            return new Promise(function(resolve) {
-              setTimeout(function() { resolve(tryOnce()); }, delay);
-            });
-          });
-      }
-      return tryOnce();
-    }
-
-    var SRC_CACHE_NAME = 'eaglerlite-v2';
-    function cacheSourceResponse(url, response) {
-      try {
-        if (!('caches' in window) || !response) return Promise.resolve(null);
-        return caches.open(SRC_CACHE_NAME).then(function(c) {
-          try { return c.put(url, response.clone()); } catch(e) { return null; }
-        }).catch(function() { return null; });
-      } catch(_) { return Promise.resolve(null); }
-    }
-    function tryCachedSource(url) {
-      try {
-        if (!('caches' in window)) return Promise.resolve(null);
-        return caches.match(url, { ignoreSearch: true }).then(function(r) {
-          if (r && r.ok) return r;
-          return null;
-        }).catch(function() { return null; });
-      } catch(_) { return Promise.resolve(null); }
     }
 
     function buildReferrerMeta(strip) {
@@ -1358,20 +1231,6 @@
         try { console.error('[EaglerLite v2 AutoLaunch] Snippet error:', e); } catch (_) {}
       }
     })();
-
-    try {
-      probeProxyHealth = function() {
-        try {
-          var dot = document.getElementById('healthDot');
-          var label = document.getElementById('healthLabel');
-          if (dot) dot.className = 'health-dot load';
-          if (label) label.textContent = 'Proxy: disabled in KA (CSP)';
-        } catch(_) {}
-      };
-    } catch(_) {}
-    try { _warmupDone = true; } catch(_) {}
-
-    try { probeProxyHealth(); } catch(_) {}
 
     try {
       var retryBtn = document.getElementById('retryBtn');
