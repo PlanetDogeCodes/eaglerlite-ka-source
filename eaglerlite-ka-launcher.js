@@ -1,8 +1,4 @@
-/* EaglerLite v2.1 - KA Launcher JS
- * Loaded via <script src="https://cdn.jsdelivr.net/gh/PlanetDogeCodes/eaglerlite-ka-source@main/eaglerlite-ka-launcher.js">
- * inside Khan Academy's sandboxed webpage compiler iframe.
- * Vanilla ES5 (no transpilation). Vanilla 1.12.2 Eaglercraft runtime.
- */
+
 (function () {
   'use strict';
   try { window.__eaglerliteLauncherVersion = 'v2.1'; } catch (_) {}
