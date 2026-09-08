@@ -1,24 +1,55 @@
-/* EaglerLite v2.1 KA Launcher JS - external CDN-loaded launcher for the Khan Academy iframe port.
-   Loaded via <script src="https://cdn.jsdelivr.net/gh/PlanetDogeCodes/eaglerlite-ka-source@main/eaglerlite-ka-launcher.js?v=2.1.1">.
+/* EaglerLite v2.2 KA Launcher JS - external CDN-loaded launcher for the Khan Academy iframe port.
+   Loaded via <script src="https://cdn.jsdelivr.net/gh/PlanetDogeCodes/eaglerlite-ka-source@main/eaglerlite-ka-launcher.js?v=2.2.0">.
    Architecture: launchGame() builds a srcdoc game frame whose inline boot script sets window.eaglercraftXOpts,
    injects the config, then sequentially <script src>-loads CLIENT_CHUNK_URLS (jsDelivr, script-src CDN-legal;
    each chunk appends one escaped fragment into window.__eag112Src). The boot script reassembles the fragments
    and executes the genuine Eaglercraft 1.12.2 client via document.createElement('script') + textContent - NO
    eval, NO blob URLs, NO network request APIs of any kind, so KA's connect-src restrictions are never
-   touched and zero CSP console violations are produced (no proxy runtime of any kind). An inline
-   EaglerLiteOptimizer(CFG) (serialized with toString(), perf/QoL subset only) runs BEFORE the client.
+   touched and zero CSP console violations are produced (no proxy runtime of any kind). gameVersion is
+   hard-coded to 1.12.2 and the two frozen client chunks reassemble byte-identical to the repo's genuine
+   1-12source.gz (verified), so the KA port always runs the real 1.12.2 client, never a beta branch. An
+   inline EaglerLiteOptimizer(CFG) (serialized with toString(), perf/QoL subset only) runs BEFORE the client.
    Readiness handshake: the frame posts {type:'eaglerlite-ready'|'eaglerlite-fail', gameVersion:'1.12.2',
    source:'ka-chunks'} to the parent (screenChanged hook + canvas poller, 500ms x 300 tries); a 120s watchdog
    reveals the manual paste box (raw Eaglercraft_1.12.js source as offline fallback) on timeout.
    window.parent.__eag112TestChunks (array of chunk strings) enables pre-deploy chunk testing on the real KA
-   page. Round 6: keyboard focus acquisition (in-frame hidden capture input + mousedown/pointerlockchange
+   page. Keyboard focus acquisition (in-frame hidden capture input + mousedown/pointerlockchange
    window.focus() grabs + canvas tabIndex, focus on runtime-ready, parent keydown/keyup/keypress relay that
    re-dispatches keys into the frame as synthetic KeyboardEvents), complete-texture safety (generateMipmap
    pass-through instead of a no-op stub), fullbright shader patch compile-guarded with dual-form matching,
    equal-size-only bufferSubData reallocation (prevents partial vertex-upload zero-wipes that blackened HUD
-   status icons), and a 120s launch watchdog. Includes cleanup(), config/profile/theme/timeline/history/banner/kbd systems, per-field guarded DOM
-   reads, null-guarded status/progress/busy writers, and defensive error capture (window.onerror +
-   unhandledrejection, capture=true, recorded without console output). gameVersion is hard-coded to 1.12.2.
+   status icons). Multiplayer + zoom: the boot script embeds the verified __eagLiteMPBoot module (opts
+   defineProperty trap that survives the client footer's eaglercraftXOpts clobber - the resolved default
+   servers list is seeded into the in-game multiplayer tab, wss://mc.1b2t.xyz first, optional joinServer
+   quick-join, screenChanged hook actually fires) and __eagLitePatchClient applies FOV zoom patches (hold C,
+   camera FOV animates to the configured zoom FOV, default 30) to the genuine client source at two
+   verified-unique sites before execution; top-level safeSet/safeGet aliases restore config/activity/profile
+   persistence. v2.2 loader.js launch-options sync: at boot a hidden off-screen about:blank iframe is created
+   and only AFTER the iframe's own load event has fired is the repo loader.js <script src>-loaded into that
+   iframe (loader.js registers an error-logging window 'load' listener at eval time - appending the
+   script after the load event already fired keeps that listener dormant, so the console stays 100% silent
+   while the trap property is still defined at eval time). Assigning window.eaglercraftXOpts = {} inside the
+   iframe trips loader.js's trap setter, which forces the repo server list onto the value; the list is read
+   back, filtered to ws/wss entries, cached in localStorage (eaglerLiteRepoServersKA_v1, 6h TTL,
+   background refresh, jsDelivr-only fallback chain - every URL in the chain is on KA's CSP script-src
+   allowlist, and both script onerror AND the 12s hard timeout ADVANCE the chain with full iframe cleanup
+   between attempts) and re-rendered into the server editor rows - a user-customized list is never
+   overwritten (priority: user-saved list > repo-synced/cached list > embedded defaults; MPBoot's
+   defaultServers resolve through the same chain). A one-time v2.1-to-v2.2 migration (localStorage flag
+   eaglerLiteKAOptsMigrated_v1) marks a pre-existing v2.1 saved server list as user-custom on the first
+   v2.2 boot so the first repo sync can never clobber it. The probe is script-tag-only, so KA's
+   restrictive connect-src is never touched and no fetch/XHR is used. v2.2 Copy/Paste Launch Options:
+   the current server list, ch1..ch21 toggle states, zoomFov, quickJoin and theme are exported as an
+   'EAGLERLITE-OPTS-v2:' prefixed JSON string to the clipboard (navigator.clipboard with hidden-textarea
+   execCommand fallback - every clipboard promise is fully chained, so a denied clipboard never produces
+   an unhandled rejection or a false success toast) and re-imported through the existing
+   editor/config/theme apply paths via a paste modal (ESC/Cancel/Apply/backdrop click, server import
+   capped at 60 entries, no prompt dialogs - profile deletion uses a two-click confirm) - cross-edition
+   options sync, with the quick-join server persisted under eaglerLiteQuickJoinKA_v1 and restored on
+   load. Includes cleanup(),
+   config/profile/theme/timeline/history/banner/kbd systems, per-field guarded DOM reads, null-guarded
+   status/progress/busy writers, and defensive error capture (window.onerror + unhandledrejection,
+   capture=true, recorded without console output).
    Vanilla ES5. No inline comments below this block. */
 'use strict';
 (function() {
@@ -253,6 +284,17 @@
   });
 })();
 
+var safeGet = window.__eaglerliteSafeGet || function(key, def) {
+try { var v = localStorage.getItem(key); if (v === null) return def; return v; } catch(_) {}
+return def;
+};
+var safeSet = window.__eaglerliteSafeSet || function(key, val) {
+try { localStorage.setItem(key, val); } catch(_) {}
+};
+var safeRemove = window.__eaglerliteSafeRemove || function(key) {
+try { localStorage.removeItem(key); } catch(_) {}
+};
+
 function setStatus(msg, cls) {
   var el = document.getElementById('status');
   if (!el) return;
@@ -346,6 +388,13 @@ function downloadLauncher() {
       var curOpt = sel.options[sel.selectedIndex];
       if (curOpt) curOpt.setAttribute('selected', 'selected');
     }
+    var qjSel = document.getElementById('quickJoinSelect');
+    if (qjSel) {
+      var qjOpt = qjSel.querySelector('option[selected]');
+      if (qjOpt) qjOpt.removeAttribute('selected');
+      var qjCur = qjSel.options[qjSel.selectedIndex];
+      if (qjCur) qjCur.setAttribute('selected', 'selected');
+    }
     var detailsEls = document.querySelectorAll('details');
     for (var d = 0; d < detailsEls.length; d++) {
       if (detailsEls[d].open) detailsEls[d].setAttribute('open', 'open');
@@ -374,6 +423,15 @@ function downloadLauncher() {
     if (cGameFrame) { try { cGameFrame.removeAttribute('srcdoc'); } catch(_) {} try { if (cGameFrame.parentNode) cGameFrame.parentNode.removeChild(cGameFrame); } catch(_) {} }
     var cModal = cloneRoot.querySelector('#resetModal');
     if (cModal) cModal.className = 'modal-overlay hidden';
+    var cOptsModal = cloneRoot.querySelector('#optsPasteModal');
+    if (cOptsModal) cOptsModal.className = 'modal-overlay hidden';
+    var cDelBtn = cloneRoot.querySelector('#deleteProfileBtn');
+    if (cDelBtn) { try { cDelBtn.textContent = 'Delete'; } catch(_) {} }
+    var cRepoStatus = cloneRoot.querySelector('#repoSyncStatus');
+    if (cRepoStatus) {
+      cRepoStatus.textContent = 'Launch options: checking repo loader.js...';
+      try { cRepoStatus.style.color = 'var(--muted)'; } catch(_) {}
+    }
     var fullHTML = launcherComment + '<!DOCTYPE html>\n' + cloneRoot.outerHTML;
     var blob = new Blob([fullHTML], { type: 'text/html;charset=utf-8' });
     var blobUrl = URL.createObjectURL(blob);
@@ -391,7 +449,6 @@ function downloadLauncher() {
   } catch(e) {
     setStatus('Failed to build launcher: ' + e.message, 'err');
     logActivity('Download failed: ' + e.message, 'err');
-    try { console.error('[EaglerLite] downloadLauncher error:', e); } catch(_) {}
   } finally {
     setBusy(false);
   }
@@ -418,6 +475,8 @@ var CLIENT_CHUNK_URLS = [
 ];
 
 var GAME_SHIM = "(function(){\ntry {\nvar _origFetch=(typeof window.fetch===\"function\")?window.fetch.bind(window):null;\nfunction _dataUriBytes(url){\n  var ci=url.indexOf(\",\");\n  if(ci===-1)throw new Error(\"malformed data URI\");\n  var meta=url.slice(0,ci);\n  var payload=url.slice(ci+1);\n  var bytes;\n  if(meta.indexOf(\"base64\")!==-1){\n    var bin=window.atob(payload);\n    bytes=new Uint8Array(bin.length);\n    for(var i=0;i<bin.length;i++)bytes[i]=bin.charCodeAt(i);\n  }else{\n    var dec=window.decodeURIComponent(payload);\n    bytes=new Uint8Array(dec.length);\n    for(var j=0;j<dec.length;j++)bytes[j]=dec.charCodeAt(j)&255;\n  }\n  return bytes;\n}\nwindow.__eagDataUriBytes=_dataUriBytes;\nwindow.fetch=function(input,init){\n  var url=null;\n  try{\n    if(typeof input===\"string\")url=input;\n    else if(input&&typeof input.url===\"string\")url=input.url;\n  }catch(_){}\n  if(url&&url.slice(0,5)===\"data:\"){\n    return new Promise(function(resolve,reject){\n      try{\n        var bytes=_dataUriBytes(url);\n        var ci=url.indexOf(\";\");\n        var mime=(ci>5)?url.slice(5,ci):\"application/octet-stream\";\n        if(typeof Response===\"function\")resolve(new Response(bytes.buffer,{status:200,statusText:\"OK\",headers:{\"content-type\":mime}}));\n        else resolve({ok:true,status:200,arrayBuffer:function(){return Promise.resolve(bytes.buffer);}});\n      }catch(e){reject(e);}\n    });\n  }\n  if(url&&url.slice(0,5)===\"blob:\"){\n    var bl=null;\n    try{bl=(window.__eagBlobMap||{})[url];}catch(_){}\n    if(bl){\n      return new Promise(function(resolve,reject){\n        try{\n          var rd=new FileReader();\n          rd.onloadend=function(){\n            try{\n              if(typeof Response===\"function\")resolve(new Response(rd.result,{status:200,statusText:\"OK\"}));\n              else resolve({ok:true,status:200,arrayBuffer:function(){return Promise.resolve(rd.result);}});\n            }catch(e){reject(e);}\n          };\n          rd.onerror=function(){reject(new Error(\"blob read error\"));};\n          rd.readAsArrayBuffer(bl);\n        }catch(e){reject(e);}\n      });\n    }\n  }\n  if(!_origFetch)return Promise.reject(new Error(\"fetch unavailable\"));\n  return _origFetch(input,init);\n};\nvar _origCOU=(typeof URL!==\"undefined\"&&URL.createObjectURL)?URL.createObjectURL:null;\nif(_origCOU){\n  window.__eagBlobMap={};\n  URL.createObjectURL=function(blob){\n    var u=_origCOU.call(URL,blob);\n    try{window.__eagBlobMap[u]=blob;}catch(_){}\n    return u;\n  };\n}\nvar _origROU=(typeof URL!==\"undefined\"&&URL.revokeObjectURL)?URL.revokeObjectURL:null;\nif(_origROU){\n  URL.revokeObjectURL=function(u){\n    try{if(window.__eagBlobMap)delete window.__eagBlobMap[u];}catch(_){}\n    return _origROU.call(URL,u);\n  };\n}\nvar _origOpen=XMLHttpRequest.prototype.open;\nvar _origSend=XMLHttpRequest.prototype.send;\nXMLHttpRequest.prototype.open=function(method,url){\n  try{this.__eagReqUrl=String(url);}catch(_){}\n  return _origOpen.apply(this,arguments);\n};\nXMLHttpRequest.prototype.send=function(){\n  var u=null;\n  try{u=this.__eagReqUrl;}catch(_){}\n  if(u&&u.slice(0,5)===\"data:\"){\n    var self=this;\n    setTimeout(function(){\n      try{\n        var bytes=_dataUriBytes(u);\n        try{Object.defineProperty(self,\"response\",{value:bytes.buffer,configurable:true});}catch(_){}\n        try{Object.defineProperty(self,\"responseText\",{value:\"\",configurable:true});}catch(_){}\n        try{Object.defineProperty(self,\"status\",{value:200,configurable:true});}catch(_){}\n        self.dispatchEvent(new Event(\"load\"));\n      }catch(e){try{self.dispatchEvent(new Event(\"error\"));}catch(_){}}\n    },0);\n    return;\n  }\n  if(u&&u.slice(0,5)===\"blob:\"){\n    var self2=this;\n    var bl2=null;\n    try{bl2=(window.__eagBlobMap||{})[u];}catch(_){}\n    if(bl2){\n      try{\n        var rd=new FileReader();\n        rd.addEventListener(\"loadend\",function(){\n          try{\n            var res=rd.result;\n            try{Object.defineProperty(self2,\"response\",{value:res,configurable:true});}catch(_){}\n            try{Object.defineProperty(self2,\"status\",{value:200,configurable:true});}catch(_){}\n            self2.dispatchEvent(new Event(\"load\"));\n          }catch(e){try{self2.dispatchEvent(new Event(\"error\"));}catch(_){}}\n        });\n        rd.addEventListener(\"error\",function(){try{self2.dispatchEvent(new Event(\"error\"));}catch(_){}});\n        rd.readAsArrayBuffer(bl2);\n        return;\n      }catch(_){setTimeout(function(){try{self2.dispatchEvent(new Event(\"error\"));}catch(_){}},0);return;}\n    }\n    setTimeout(function(){try{self2.dispatchEvent(new Event(\"error\"));}catch(_){}},0);\n    return;\n  }\n  return _origSend.apply(this,arguments);\n};\nvar _origSetAttr=Element.prototype.setAttribute;\nElement.prototype.setAttribute=function(name,value){\n  try{\n    if((name===\"src\"||name===\"href\")&&typeof value===\"string\"&&value.slice(0,11)===\"data:image/\"){\n      return;\n    }\n  }catch(_){}\n  return _origSetAttr.apply(this,arguments);\n};\ntry{\n  var _linkDesc=Object.getOwnPropertyDescriptor(HTMLLinkElement.prototype,\"href\");\n  if(_linkDesc&&_linkDesc.get&&_linkDesc.set){\n    Object.defineProperty(HTMLLinkElement.prototype,\"href\",{\n      get:function(){return _linkDesc.get.call(this);},\n      set:function(v){if(typeof v===\"string\"&&v.slice(0,11)===\"data:image/\")return;_linkDesc.set.call(this,v);}\n    });\n  }\n}catch(_){}\ntry{\n  var _imgDesc=Object.getOwnPropertyDescriptor(HTMLImageElement.prototype,\"src\");\n  if(_imgDesc&&_imgDesc.get&&_imgDesc.set){\n    Object.defineProperty(HTMLImageElement.prototype,\"src\",{\n      get:function(){return _imgDesc.get.call(this);},\n      set:function(v){if(typeof v===\"string\"&&v.slice(0,11)===\"data:image/\")return;_imgDesc.set.call(this,v);}\n    });\n  }\n}catch(_){}\nfunction _canvasImgLoad(cv,url){\n  try{\n    var blob=null;\n    if(url.slice(0,5)===\"blob:\"){\n      try{blob=(window.__eagBlobMap||{})[url];}catch(_){}\n    }else if(url.slice(0,11)===\"data:image/\"){\n      var bytes=_dataUriBytes(url);\n      var ci2=url.indexOf(\",\");\n      var meta=url.slice(0,ci2);\n      var semi=meta.indexOf(\";\");\n      var mime=semi>5?meta.slice(5,semi):\"image/png\";\n      blob=new Blob([bytes],{type:mime});\n    }\n    if(!blob){setTimeout(function(){try{cv.dispatchEvent(new Event(\"error\"));}catch(_){}},0);return;}\n    var done=false;\n    var fail=function(){if(done)return;done=true;try{cv.dispatchEvent(new Event(\"error\"));}catch(_){}};\n    var ok=function(bitmap){\n      if(done)return;done=true;\n      try{\n        cv.width=bitmap.width;cv.height=bitmap.height;\n        try{Object.defineProperty(cv,\"naturalWidth\",{value:bitmap.width,configurable:true});}catch(_){}\n        try{Object.defineProperty(cv,\"naturalHeight\",{value:bitmap.height,configurable:true});}catch(_){}\n        try{Object.defineProperty(cv,\"complete\",{value:true,configurable:true});}catch(_){}\n        var ctx=cv.getContext(\"2d\");\n        ctx.drawImage(bitmap,0,0);\n        cv.dispatchEvent(new Event(\"load\"));\n      }catch(e){fail();}\n    };\n    if(typeof window.createImageBitmap===\"function\"){\n      window.createImageBitmap(blob).then(ok,fail);\n    }else{\n      var turl=_origCOU?_origCOU.call(URL,blob):null;\n      var im=(_origCreate2?_origCreate2(\"img\"):null);\n      if(turl&&im){\n        im.onload=function(){try{cv.width=im.naturalWidth;cv.height=im.naturalHeight;var c2=cv.getContext(\"2d\");c2.drawImage(im,0,0);cv.dispatchEvent(new Event(\"load\"));}catch(e){fail();}};\n        im.onerror=fail;\n        im.src=turl;\n      }else{fail();}\n    }\n  }catch(e){try{cv.dispatchEvent(new Event(\"error\"));}catch(_){}}\n}\nvar _origCreate2=null;\ntry{_origCreate2=document.createElement.bind(document);}catch(_){}\nif(_origCreate2){\n  document.createElement=function(tag){\n    if(String(tag).toLowerCase()===\"img\"){\n      var cv=_origCreate2(\"canvas\");\n      try{cv.width=0;cv.height=0;}catch(_){}\n      try{\n        Object.defineProperty(cv,\"src\",{\n          configurable:true,\n          get:function(){return cv.__eagImgSrc||\"\";},\n          set:function(v){cv.__eagImgSrc=String(v);_canvasImgLoad(cv,String(v));}\n        });\n      }catch(_){}\n      return cv;\n    }\n    return _origCreate2(tag);\n  };\n}\n}catch(_shimErr){}\n})();\n";
+var MP_MODULE_CODE = "function __eagLiteMPBoot(CFG) {\ntry {\n\nvar _zf = (typeof CFG.zoomFov === 'number' && CFG.zoomFov > 1 && CFG.zoomFov < 175) ? CFG.zoomFov : 30;\nwindow.__eagLiteZoomFov = 0;\nvar _zCur = 0, _zFrom = 0, _zTo = 0, _zT0 = 0, _zOn = false, _zAnim = false, _zRel = false;\nfunction _zSet(v) { try { window.__eagLiteZoomFov = v; } catch(_) {} }\nfunction _zUser() {\nvar f = 70;\ntry { if (typeof window.__eagLiteFov === 'number' && window.__eagLiteFov > 1) f = window.__eagLiteFov; } catch(_) {}\nreturn f;\n}\nfunction _zTick() {\nvar k = (Date.now() - _zT0) / 120;\nif (k >= 1) {\n_zCur = _zTo;\n_zAnim = false;\nif (_zRel) { _zSet(0); return; }\n_zSet(_zTo);\nreturn;\n}\n_zCur = _zFrom + (_zTo - _zFrom) * k;\n_zSet(_zCur);\nsetTimeout(_zTick, 16);\n}\nfunction _zEngage(on) {\nif (on) {\nif (_zOn) return;\n_zOn = true;\n_zRel = false;\n_zFrom = _zCur > 0 ? _zCur : _zUser();\n_zTo = _zf;\n} else {\nif (!_zOn) return;\n_zOn = false;\n_zRel = true;\n_zFrom = _zCur > 0 ? _zCur : _zf;\n_zTo = _zUser();\n}\n_zT0 = Date.now();\nif (!_zAnim) { _zAnim = true; _zTick(); }\n}\nfunction _zIsC(e) {\nreturn !!(e && (e.code === 'KeyC' || e.key === 'c' || e.key === 'C' || e.keyCode === 67));\n}\ntry {\nif (CFG.zoom) {\ndocument.addEventListener('keydown', function(e) { if (_zIsC(e) && document.pointerLockElement) _zEngage(true); }, true);\ndocument.addEventListener('keyup', function(e) { if (_zIsC(e)) _zEngage(false); }, true);\ndocument.addEventListener('pointerlockchange', function() { if (!document.pointerLockElement) _zEngage(false); }, true);\n}\n} catch(_) {}\n\nvar _baseOpts = { container: 'game_frame', worldsDB: 'worlds' };\ntry {\nif (CFG.defaultServers && CFG.defaultServers.length) {\nvar _svs = [];\nfor (var _si = 0; _si < CFG.defaultServers.length; _si++) {\nvar _sv = CFG.defaultServers[_si];\nif (_sv && typeof _sv.addr === 'string' && _sv.addr.length > 4) {\n_svs.push({ addr: _sv.addr, name: (typeof _sv.name === 'string' && _sv.name) ? _sv.name : _sv.addr });\n}\n}\nif (_svs.length) _baseOpts.servers = _svs;\n}\n} catch(_) {}\nif (CFG.joinServer && typeof CFG.joinServer === 'string' && CFG.joinServer.length > 4) _baseOpts.joinServer = CFG.joinServer;\n_baseOpts.hooks = {};\ntry {\nif (typeof CFG.onScreen === 'function') {\n_baseOpts.hooks.screenChanged = function(screenName, sw, sh, rw, rh, scale) {\ntry { CFG.onScreen(screenName, sw, sh, rw, rh, scale); } catch(_) {}\n};\n}\n} catch(_) {}\n\nwindow._eagLiteOpts = _baseOpts;\nvar _odp = Object.defineProperty;\nfunction _eagLiteInstallTrap() {\ntry {\n_odp.call(Object, window, 'eaglercraftXOpts', {\nconfigurable: true,\nenumerable: true,\nget: function() { return window._eagLiteOpts; },\nset: function(v) {\ntry {\nif (v && typeof v === 'object' && v !== window._eagLiteOpts) {\nvar b = window._eagLiteOpts;\nif (b && typeof b === 'object') {\nif (!v.container) v.container = b.container;\nif (!v.worldsDB) v.worldsDB = b.worldsDB;\nif (!v.relays) v.relays = b.relays;\nif (b.servers && b.servers.length) v.servers = b.servers;\nif (b.hooks) {\nif (!v.hooks) v.hooks = b.hooks;\nelse { for (var hk in b.hooks) if (typeof b.hooks[hk] === 'function' && typeof v.hooks[hk] !== 'function') v.hooks[hk] = b.hooks[hk]; }\n}\nif (b.joinServer) v.joinServer = b.joinServer;\n}\n}\n} catch(_) {}\nwindow._eagLiteOpts = v;\n}\n});\n} catch(_) {}\n}\n_eagLiteInstallTrap();\ntry {\nvar _odpArmed = true;\nObject.defineProperty = function(t, p, d) {\nvar r = _odp.call(Object, t, p, d);\ntry {\nif (_odpArmed && t === window && p === 'eaglercraftXOpts') {\n_odpArmed = false;\nObject.defineProperty = _odp;\n_eagLiteInstallTrap();\n}\n} catch(_) {}\nreturn r;\n};\n} catch(_) {}\n\nfunction __eagLitePatchClient(src, wantZoom) {\nvar n = 0;\ntry {\nif (wantZoom) {\nvar p1o = 'f=70.0;if(c){g=d.F.bmQ;';\nvar p1n = 'f=70.0;if(c){g=d.F.bmQ;if(typeof $rt_globals.__eagLiteZoomFov===\"number\"&&$rt_globals.__eagLiteZoomFov>0)g=$rt_globals.__eagLiteZoomFov;try{$rt_globals.__eagLiteFov=g}catch(_){}';\nif (src.indexOf(p1o) !== -1) { src = src.replace(p1o, p1n); n++; }\nvar p2o = 'i=a.ja.KY.bmQ/100.0;';\nvar p2n = 'i=a.ja.KY.bmQ/100.0;if(typeof $rt_globals.__eagLiteZoomFov===\"number\"&&$rt_globals.__eagLiteZoomFov>0)i=$rt_globals.__eagLiteZoomFov/100.0;';\nif (src.indexOf(p2o) !== -1) { src = src.replace(p2o, p2n); n++; }\n}\n} catch(_) {}\ntry { window.__eagLitePatchCount = n; } catch(_) {}\nreturn src;\n}\nwindow.__eagLitePatchClient = __eagLitePatchClient;\n\nif (CFG.interceptClient) {\ntry {\nvar _origCOU = URL.createObjectURL;\nURL.createObjectURL = function(b) {\ntry { window.__eagLiteClientBlob = b; } catch(_) {}\nreturn _origCOU.call(URL, b);\n};\n} catch(_) {}\ntry {\nvar _origAC = Element.prototype.appendChild;\nvar _ceptDone = false;\nElement.prototype.appendChild = function(child) {\nif (!_ceptDone) {\ntry {\nif (child && child.tagName === 'SCRIPT' && typeof child.src === 'string' && child.src.lastIndexOf('blob:', 0) === 0) {\n_ceptDone = true;\nElement.prototype.appendChild = _origAC;\nvar self = this;\nvar blob = null;\ntry { blob = window.__eagLiteClientBlob; } catch(_) {}\nvar done = false;\nfunction _runOrig() {\nif (done) return;\ndone = true;\ntry { _origAC.call(self, child); } catch(e) {}\n}\nfunction _withText(txt) {\nif (done) return;\ndone = true;\ntry {\ntxt = __eagLitePatchClient(txt, CFG.zoom);\nvar s = document.createElement('script');\ns.type = 'text/javascript';\ns.textContent = txt;\n_origAC.call(self, s);\n} catch(e) { _runOrig(); }\n}\nif (blob && typeof blob.text === 'function') {\nblob.text().then(_withText).catch(_runOrig);\n} else if (typeof fetch === 'function') {\nfetch(child.src).then(function(r) { return r.text(); }).then(_withText).catch(_runOrig);\n} else {\n_runOrig();\n}\nreturn child;\n}\n} catch(e) {}\n}\nreturn _origAC.call(this, child);\n};\n} catch(_) {}\n}\n\n} catch(_) {}\n}\n";
+
 function buildKASrcdoc(cfg, opts) {
   opts = opts || {};
   var stripReferrer = opts.stripReferrer !== false;
@@ -445,9 +504,23 @@ function buildKASrcdoc(cfg, opts) {
   boot.push("(function() {\n  try {\n    var __grabbed = false;\n    function __grabFocus(force) {\n      try {\n        if (__grabbed && !force) return;\n        try { window.focus(); } catch (_) {}\n        try {\n          if (window.__eagKeyCap && typeof window.__eagKeyCap.focus === 'function') window.__eagKeyCap.focus();\n          __grabbed = true;\n        } catch (_) {}\n      } catch (_) {}\n    }\n    try {\n      document.addEventListener('mousedown', function() { __grabbed = false; __grabFocus(false); }, true);\n      document.addEventListener('touchstart', function() { __grabbed = false; __grabFocus(false); }, true);\n      document.addEventListener('pointerlockchange', function() { __grabFocus(true); }, true);\n    } catch (_) {}\n    function __ensureCaptureInput() {\n      try {\n        if (!window.__eagKeyCap) {\n          var inp = document.createElement('input');\n          inp.type = 'text';\n          inp.autocomplete = 'off';\n          inp.setAttribute('autocapitalize', 'off');\n          inp.setAttribute('spellcheck', 'false');\n          inp.setAttribute('style', 'position:fixed;left:0;top:0;width:2px;height:2px;opacity:0.0001;z-index:-1;border:0;padding:0;margin:0;background:transparent;color:transparent;outline:none;box-shadow:none;pointer-events:none;caret-color:transparent;font-size:1px;');\n          try {\n            inp.addEventListener('input', function() { try { inp.value = ''; } catch (_) {} }, true);\n          } catch (_) {}\n          try { (document.body || document.documentElement).appendChild(inp); } catch (_) {}\n          window.__eagKeyCap = inp;\n        }\n        __grabFocus(true);\n      } catch (_) {}\n    }\n    var __cvDone = false;\n    function __hookCanvas(c) {\n      if (__cvDone || !c) return;\n      __cvDone = true;\n      try { c.tabIndex = 0; } catch (_) {}\n      try {\n        c.addEventListener('mousedown', function() { __grabbed = false; __ensureCaptureInput(); }, true);\n        c.addEventListener('touchstart', function() { __grabbed = false; __ensureCaptureInput(); }, true);\n      } catch (_) {}\n    }\n    var __cvTries = 0;\n    var __cvWatch = setInterval(function() {\n      __cvTries++;\n      try {\n        var c = null;\n        try { c = document.querySelector('#game_frame canvas'); } catch (_) {}\n        if (!c) { try { c = document.querySelector('canvas'); } catch (_) {} }\n        if (c && c.width > 0) { __hookCanvas(c); clearInterval(__cvWatch); return; }\n      } catch (_) {}\n      if (__cvTries > 900) { try { clearInterval(__cvWatch); } catch (_) {} }\n    }, 400);\n    try { window.addEventListener('load', function() { setTimeout(__ensureCaptureInput, 400); }); } catch (_) {}\n  } catch (_kbErr) {}\n})();\n");
 
   boot.push('function loadScript(urls,idx,onDone,onAllFailed){if(idx>=urls.length){onAllFailed();return;}var s=document.createElement("script");s.src=urls[idx];s.async=false;try{s.className="eag112-chunk";}catch(_){}s.onload=function(){if(idx+1<urls.length){loadScript(urls,idx+1,onDone,onAllFailed);}else{onDone(idx,urls.length);}};s.onerror=function(){toast("Failed to load chunk "+(idx+1)+": "+urls[idx],"err");try{if(s.parentNode)s.parentNode.removeChild(s);}catch(_){}loadScript(urls,idx+1,onDone,onAllFailed);};document.head.appendChild(s);}\n');
-  boot.push('window.__eagExecuteClient=function(){try{var S=window.__eag112Src||"";window.__eag112Src=null;if(!S){window.__eagFail("client source unavailable before execution");return;}var sc=document.createElement("script");sc.textContent=S;document.head.appendChild(sc);try{var __cs=document.querySelectorAll("script.eag112-chunk");for(var __ci=0;__ci<__cs.length;__ci++){try{if(__cs[__ci].parentNode)__cs[__ci].parentNode.removeChild(__cs[__ci]);}catch(_){}}}catch(_){}}catch(e){window.__eagFail("client execute error: "+((e&&e.message)||e));}};\n');
+  boot.push('window.__eagExecuteClient=function(){try{var S=window.__eag112Src||"";window.__eag112Src=null;if(!S){window.__eagFail("client source unavailable before execution");return;}try{if(typeof window.__eagLitePatchClient==="function"){S=window.__eagLitePatchClient(S,' + (cfg && cfg.zoom ? 'true' : 'false') + ');}}catch(_pe){}var sc=document.createElement("script");sc.textContent=S;document.head.appendChild(sc);try{var __cs=document.querySelectorAll("script.eag112-chunk");for(var __ci=0;__ci<__cs.length;__ci++){try{if(__cs[__ci].parentNode)__cs[__ci].parentNode.removeChild(__cs[__ci]);}catch(_){}}}catch(_){}}catch(e){window.__eagFail("client execute error: "+((e&&e.message)||e));}};\n');
   boot.push('try{\n');
-  boot.push('window.eaglercraftXOpts={container:"game_frame",worldsDB:"worlds",singleThreadMode:true,relays:[],servers:[],hooks:{screenChanged:function(){try{window.__eagFireReady();}catch(_){}}}};\n');
+  var cfgServers = [];
+  try {
+    if (cfg && cfg.defaultServers && cfg.defaultServers.length) {
+      for (var _msi = 0; _msi < cfg.defaultServers.length; _msi++) {
+        var _msv = cfg.defaultServers[_msi];
+        if (_msv && typeof _msv.addr === 'string' && _msv.addr.length > 4) {
+          cfgServers.push({ addr: _msv.addr, name: (typeof _msv.name === 'string' && _msv.name) ? _msv.name : _msv.addr });
+        }
+      }
+    }
+  } catch(_) {}
+  var cfgJoin = (cfg && typeof cfg.joinServer === 'string' && cfg.joinServer.length > 4) ? cfg.joinServer : '';
+  var cfgZoomFov = (cfg && typeof cfg.zoomFov === 'number') ? cfg.zoomFov : 30;
+  boot.push(MP_MODULE_CODE.replace(/<\/script/gi, '<\\/script') + '\n');
+  boot.push('__eagLiteMPBoot({zoom:' + (cfg && cfg.zoom ? 'true' : 'false') + ',zoomFov:' + (typeof cfgZoomFov === 'number' && cfgZoomFov >= 10 && cfgZoomFov <= 70 ? cfgZoomFov : 30) + ',defaultServers:' + JSON.stringify(cfgServers).replace(/<\/script/gi, '<\\/script') + ',joinServer:' + JSON.stringify(cfgJoin).replace(/<\/script/gi, '<\\/script') + ',onScreen:function(n){try{window.__eagFireReady();}catch(_){}}});\n');
   boot.push('window.eaglerLiteCfg=' + cfgJson + ';\n');
   boot.push('var __tries=0;\n');
   boot.push('function __poll(){if(__done||__failed)return;var c=null;try{c=document.querySelector("#game_frame canvas");}catch(_){}if(c&&c.width>0){window.__eagFireReady();return;}__tries++;if(__tries>=300){window.__eagFail("client canvas never appeared after 150s of polling");return;}setTimeout(__poll,500);}\n');
@@ -659,19 +732,6 @@ WrappedAudioContext.prototype = origAudioCtx.prototype;
 window.AudioContext = WrappedAudioContext;
 if (window.webkitAudioContext) window.webkitAudioContext = WrappedAudioContext;
 }
-}
-if (CFG.zoom) {
-var gameCanvas = null;
-function applyZoom(on) {
-if (!gameCanvas || !gameCanvas.isConnected) gameCanvas = document.querySelector('canvas');
-if (gameCanvas) {
-gameCanvas.style.transform = on ? 'scale(4)' : 'scale(1)';
-gameCanvas.style.transformOrigin = 'center center';
-gameCanvas.style.transition = 'transform 0.15s ease';
-}
-}
-document.addEventListener('keydown', function(e) { if ((e.code === 'KeyC' || e.key === 'c' || e.key === 'C' || e.keyCode === 67) && document.pointerLockElement) applyZoom(true); });
-document.addEventListener('keyup', function(e) { if ((e.code === 'KeyC' || e.key === 'c' || e.key === 'C' || e.keyCode === 67) && document.pointerLockElement) applyZoom(false); });
 }
 if (CFG.autosprint) {
 var sprintState = { code: CFG.sprintKey || 'ControlLeft', keyCode: 17, keyStr: 'Control' };
@@ -1688,6 +1748,45 @@ _cleanupTraps();
 }
 }
 
+function _kaServersRead() {
+  var out = [];
+  try {
+    var host = document.getElementById('serverList');
+    var rows = host ? host.querySelectorAll('.ka-srv-row') : [];
+    for (var i = 0; i < rows.length; i++) {
+      var nEl = rows[i].querySelector('.srv-name');
+      var aEl = rows[i].querySelector('.srv-addr');
+      if (!nEl || !aEl) continue;
+      var name = (nEl.value || '').trim();
+      var addr = (aEl.value || '').trim();
+      if (!/^wss?:\//i.test(addr)) continue;
+      out.push({ name: name || addr, addr: addr });
+    }
+  } catch(_) {}
+  if (out.length) return out;
+  try {
+    if (safeGet('eaglerLiteServersCustomKA_v1', '') === '1') {
+      var rawCustom = safeGet('eaglerLiteServersKA_v2', null);
+      var arrCustom = rawCustom ? JSON.parse(rawCustom) : null;
+      if (arrCustom && arrCustom.length) return arrCustom;
+    }
+  } catch(_) {}
+  try {
+    var repoCache = _kaRepoCacheRead();
+    if (repoCache && repoCache.servers && repoCache.servers.length) return repoCache.servers;
+  } catch(_) {}
+  try {
+    var raw = safeGet('eaglerLiteServersKA_v2', null);
+    var arr = raw ? JSON.parse(raw) : null;
+    if (arr && arr.length) return arr;
+  } catch(_) {}
+  return [
+    { name: '1b2t', addr: 'wss://mc.1b2t.xyz' },
+    { name: 'Voidsent MC', addr: 'wss://mc.voidsent.net' },
+    { name: '1 Builder 2 Tools Anarchy', addr: 'wss://anarchy.playit.plus' },
+    { name: 'ToastMC', addr: 'wss://toastmcc.eagler.cc' }
+  ];
+}
 function launchGame(pastedClient) {
   if (_launching) {
     try { window.__eaglerliteToast('Launch already in progress - please wait', 'load'); } catch(_) {}
@@ -1751,13 +1850,17 @@ function launchGame(pastedClient) {
       tabName: tabName, sprintKey: sprintKey, favicon: favicon, faviconPreset: faviconPreset,
       panicLink: panicLink, panicKey: panicKey, gameVersion: '1.12.2',
       reconnectDelay: _num('reconnectDelay', 2500), reconnectRetries: _num('reconnectRetries', 1),
-      maxFPS: _num('maxFPS', 120)
+      maxFPS: _num('maxFPS', 120),
+      defaultServers: _kaServersRead(),
+      joinServer: (function() { try { var q = document.getElementById('quickJoinSelect'); return (q && q.value) ? q.value : ''; } catch(_) { return ''; } })(),
+      zoomFov: (function() { try { var v = parseInt((document.getElementById('zoomFov') || {}).value, 10); return (v && v >= 10 && v <= 70) ? v : 30; } catch(_) { return 30; } })()
     };
     var warnings = _validateLaunchConfig(cfg);
     for (var wi = 0; wi < warnings.length; wi++) {
       try { window.__eaglerliteToast(warnings[wi], 'load'); } catch(_) {}
     }
     try { safeSet('eaglerLiteLastLaunch_v2', JSON.stringify(cfg)); } catch(_) {}
+    try { localStorage.setItem('eaglerLiteServersKA_v2', JSON.stringify(cfg.defaultServers)); } catch(_) {}
     var pasted = null;
     if (typeof pastedClient === 'string' && pastedClient.replace(/\s/g, '').length > 0) {
       if (pastedClient.length < 100000) {
@@ -1929,7 +2032,7 @@ function showToast(msg, kind) {
   }, ttl);
 }
 
-var NON_CONFIG_IDS = { profileName: 1, importCfgFile: 1, toggleSearch: 1 };
+var NON_CONFIG_IDS = { profileName: 1, importCfgFile: 1, toggleSearch: 1, newServerName: 1, newServerAddr: 1 };
 function readConfigFromDOM() {
   var config = {};
   var checkboxes = document.querySelectorAll('input[type="checkbox"]');
@@ -1946,6 +2049,10 @@ function readConfigFromDOM() {
   }
   var sel = document.getElementById('gameVersion');
   if (sel) config.gameVersion = sel.value;
+  var qjSel = document.getElementById('quickJoinSelect');
+  if (qjSel) {
+    try { safeSet('eaglerLiteQuickJoinKA_v1', qjSel.value || ''); } catch(_) {}
+  }
   
   var fPreset = document.getElementById('faviconPreset');
   if (fPreset) config.faviconPreset = fPreset.value;
@@ -2168,6 +2275,658 @@ try { window.__eaglerliteBindEvent('themeSwitcher', 'click', function(e) {
   scheduleSave();
 }); } catch(_) {}
 
+var KA_LOADERJS_URLS = [
+  'https://cdn.jsdelivr.net/gh/PlanetDogeCodes/EaglerLite@main/source%20file/loader.js'
+];
+var KA_REPO_CACHE_KEY = 'eaglerLiteRepoServersKA_v1';
+var KA_SERVERS_CUSTOM_KEY = 'eaglerLiteServersCustomKA_v1';
+var KA_REPO_CACHE_TTL = 21600000;
+var KA_OPTS_PREFIX = 'EAGLERLITE-OPTS-v2:';
+(function() {
+  try {
+    if (localStorage.getItem('eaglerLiteKAOptsMigrated_v1') !== null) return;
+    try { localStorage.setItem('eaglerLiteKAOptsMigrated_v1', '1'); } catch(_) {}
+    if (localStorage.getItem('eaglerLiteServersCustomKA_v1') !== null) return;
+    var raw = localStorage.getItem('eaglerLiteServersKA_v2');
+    if (raw === null) return;
+    var arr = null;
+    try { arr = JSON.parse(raw); } catch(_) { arr = null; }
+    if (!arr || typeof arr !== 'object' || typeof arr.length !== 'number' || !arr.length) return;
+    var valid = true;
+    for (var i = 0; i < arr.length; i++) {
+      if (!arr[i] || typeof arr[i] !== 'object' || typeof arr[i].addr !== 'string' || !arr[i].addr) { valid = false; break; }
+    }
+    if (valid) localStorage.setItem('eaglerLiteServersCustomKA_v1', '1');
+  } catch(_) {}
+})();
+var _kaRepoSyncBusy = false;
+var _kaRepoSawEmpty = false;
+function _kaFilterServers(list) {
+  var out = [];
+  try {
+    if (!list || !list.length) return out;
+    for (var i = 0; i < list.length; i++) {
+      try {
+        var ent = list[i];
+        var addr = (ent && typeof ent.addr === 'string') ? ent.addr : '';
+        if (!addr) continue;
+        if (addr.indexOf('wss:') !== 0 && addr.indexOf('ws:') !== 0) continue;
+        var name = (ent && typeof ent.name === 'string' && ent.name) ? ent.name : addr;
+        name = String(name).replace(/[\r\n\t]+/g, ' ').trim();
+        if (name.length > 100) name = name.slice(0, 100);
+        out.push({ name: name || addr, addr: addr });
+      } catch(_) {}
+    }
+  } catch(_) {}
+  return out;
+}
+function _kaRepoCacheRead() {
+  var out = null;
+  try {
+    var raw = safeGet(KA_REPO_CACHE_KEY, null);
+    if (!raw) return null;
+    var obj = JSON.parse(raw);
+    if (!obj || typeof obj !== 'object') return null;
+    var servers = _kaFilterServers(obj.servers);
+    if (!servers.length) return null;
+    var t = (typeof obj.t === 'number' && isFinite(obj.t)) ? obj.t : 0;
+    out = { t: t, servers: servers };
+  } catch(_) {}
+  return out;
+}
+function _kaRepoCacheWrite(servers) {
+  try {
+    if (!servers || !servers.length) return;
+    safeSet(KA_REPO_CACHE_KEY, JSON.stringify({ t: Date.now(), servers: servers }));
+  } catch(_) {}
+}
+function _kaIsCustomServers() {
+  try { return safeGet(KA_SERVERS_CUSTOM_KEY, '') === '1'; } catch(_) { return false; }
+}
+function _kaMarkCustomServers() {
+  try { safeSet(KA_SERVERS_CUSTOM_KEY, '1'); } catch(_) {}
+}
+function _kaReadServerRows() {
+  var out = [];
+  try {
+    var host = document.getElementById('serverList');
+    if (!host) return out;
+    var rows = host.querySelectorAll('.ka-srv-row');
+    for (var i = 0; i < rows.length; i++) {
+      var nEl = rows[i].querySelector('.srv-name');
+      var aEl = rows[i].querySelector('.srv-addr');
+      if (!nEl || !aEl) continue;
+      var name = (nEl.value || '').trim();
+      var addr = (aEl.value || '').trim();
+      if (!/^wss?:\//i.test(addr)) continue;
+      out.push({ name: name || addr, addr: addr });
+    }
+  } catch(_) {}
+  return out;
+}
+function _kaServersSame(a, b) {
+  try { return JSON.stringify(a) === JSON.stringify(b); } catch(_) { return false; }
+}
+function _kaQuickJoinRender(list) {
+  try {
+    var sel = document.getElementById('quickJoinSelect');
+    if (!sel) return;
+    var prev = '';
+    try { prev = sel.value || ''; } catch(_) {}
+    while (sel.firstChild) { try { sel.removeChild(sel.firstChild); } catch(_) { break; } }
+    var off = document.createElement('option');
+    off.value = '';
+    off.textContent = 'Off';
+    sel.appendChild(off);
+    var hit = false;
+    for (var i = 0; i < list.length; i++) {
+      var o = document.createElement('option');
+      o.value = list[i].addr;
+      o.textContent = list[i].name || list[i].addr;
+      if (prev && prev === o.value) hit = true;
+      sel.appendChild(o);
+    }
+    try { sel.value = (prev && hit) ? prev : ''; } catch(_) {}
+  } catch(_) {}
+}
+function _kaQjReassert() {
+  try {
+    var sel = document.getElementById('quickJoinSelect');
+    if (!sel) return;
+    var saved = safeGet('eaglerLiteQuickJoinKA_v1', '');
+    if (!saved) return;
+    var opts = sel.options;
+    for (var i = 0; i < opts.length; i++) {
+      if (opts[i].value === saved) { try { sel.value = saved; } catch(_) {} return; }
+    }
+  } catch(_) {}
+}
+function _kaPersistServers(list) {
+  try { safeSet('eaglerLiteServersKA_v2', JSON.stringify(list)); } catch(_) {}
+}
+function _kaWatchServerRowEdits() {
+  try {
+    var host = document.getElementById('serverList');
+    if (!host) return;
+    var inputs = host.querySelectorAll('.ka-srv-row input');
+    for (var i = 0; i < inputs.length; i++) {
+      var inp = inputs[i];
+      if (inp.__eagKaRowWatched) continue;
+      inp.__eagKaRowWatched = true;
+      inp.addEventListener('change', function() {
+        try {
+          _kaMarkCustomServers();
+          _kaPersistServers(_kaReadServerRows());
+        } catch(_) {}
+      });
+    }
+  } catch(_) {}
+}
+function _kaRenderServerRows(list) {
+  try {
+    var host = document.getElementById('serverList');
+    if (!host || !list || !list.length) return;
+    while (host.firstChild) { try { host.removeChild(host.firstChild); } catch(_) { break; } }
+    for (var i = 0; i < list.length; i++) {
+      var row = document.createElement('div');
+      row.className = 'ka-srv-row';
+      var n = document.createElement('input');
+      n.type = 'text';
+      n.className = 'srv-name';
+      n.value = list[i].name || list[i].addr;
+      var a = document.createElement('input');
+      a.type = 'text';
+      a.className = 'srv-addr';
+      a.value = list[i].addr;
+      var rm = document.createElement('button');
+      rm.type = 'button';
+      rm.className = 'mini-btn';
+      rm.textContent = 'Remove';
+      rm.addEventListener('click', function() {
+        try {
+          var r = this.parentNode;
+          if (r && r.parentNode) r.parentNode.removeChild(r);
+          var cur = _kaReadServerRows();
+          _kaMarkCustomServers();
+          _kaPersistServers(cur);
+          _kaQuickJoinRender(cur);
+        } catch(_) {}
+      });
+      row.appendChild(n);
+      row.appendChild(a);
+      row.appendChild(rm);
+      host.appendChild(row);
+    }
+    _kaQuickJoinRender(list);
+    _kaWatchServerRowEdits();
+  } catch(_) {}
+}
+function _kaRepoStatus(kind) {
+  try {
+    var el = document.getElementById('repoSyncStatus');
+    if (!el) return;
+    if (kind === 'syncing') {
+      el.textContent = 'Launch options: syncing from repo loader.js...';
+      el.style.color = 'var(--muted)';
+    } else if (kind === 'synced') {
+      el.textContent = 'Launch options synced from repo loader.js';
+      el.style.color = 'var(--ok)';
+    } else if (kind === 'cached') {
+      el.textContent = 'Launch options: cached from repo loader.js';
+      el.style.color = 'var(--muted)';
+    } else if (kind === 'empty') {
+      el.textContent = 'Repo loader.js has no playable servers \u2014 built-in defaults';
+      el.style.color = 'var(--load)';
+    } else if (kind === 'failed') {
+      el.textContent = 'Repo loader.js unreachable \u2014 built-in defaults';
+      el.style.color = 'var(--load)';
+    }
+  } catch(_) {}
+}
+function _kaRemoveNode(node) {
+  try { if (node && node.parentNode) node.parentNode.removeChild(node); } catch(_) {}
+}
+function _kaProbeLoaderJs(urlIdx, cb) {
+  var iframe = null;
+  var done = false;
+  var tmr = null;
+  function finish(servers, tryNext) {
+    if (done) return;
+    done = true;
+    try { if (tmr) { clearTimeout(tmr); tmr = null; } } catch(_) {}
+    _kaRemoveNode(iframe);
+    try { cb(servers ? servers : null, !!tryNext); } catch(_) {}
+  }
+  try {
+    if (!document.body || urlIdx < 0 || urlIdx >= KA_LOADERJS_URLS.length) { finish(null, false); return; }
+    iframe = document.createElement('iframe');
+    iframe.setAttribute('aria-hidden', 'true');
+    iframe.setAttribute('tabindex', '-1');
+    iframe.setAttribute('src', 'about:blank');
+    iframe.style.cssText = 'position:fixed;left:-9999px;top:0;width:1px;height:1px;border:0;visibility:hidden;';
+    var loadSeen = false;
+    iframe.addEventListener('load', function() {
+      if (done || loadSeen) return;
+      loadSeen = true;
+      try {
+        var doc = iframe.contentDocument || (iframe.contentWindow && iframe.contentWindow.document);
+        if (!doc || !doc.body) { finish(null, false); return; }
+        var s = doc.createElement('script');
+        s.src = KA_LOADERJS_URLS[urlIdx];
+        s.async = false;
+        s.onload = function() {
+          if (done) return;
+          var servers = null;
+          try {
+            var iw = iframe.contentWindow;
+            if (iw) {
+              iw.eaglercraftXOpts = {};
+              var readBack = iw.eaglercraftXOpts;
+              servers = (readBack && readBack.servers) ? readBack.servers : null;
+              if (readBack && readBack.servers && readBack.servers.length) _kaRepoSawEmpty = true;
+            }
+          } catch(_) { servers = null; }
+          finish(_kaFilterServers(servers), false);
+        };
+        s.onerror = function() {
+          if (done) return;
+          finish(null, true);
+        };
+        doc.body.appendChild(s);
+      } catch(_) { finish(null, false); }
+    });
+    document.body.appendChild(iframe);
+    tmr = setTimeout(function() { finish(null, true); }, 12000);
+  } catch(_) { finish(null, false); }
+}
+function _kaRepoProbeChain(idx, cb) {
+  try {
+    if (idx >= KA_LOADERJS_URLS.length) { try { cb(null, false); } catch(_) {} return; }
+    _kaProbeLoaderJs(idx, function(servers, tryNext) {
+      if (tryNext) { _kaRepoProbeChain(idx + 1, cb); return; }
+      try { cb(servers, false); } catch(_) {}
+    });
+  } catch(_) { try { cb(null, false); } catch(_) {} }
+}
+function _kaApplyRepoListIfDefault(list) {
+  try {
+    if (!list || !list.length) return false;
+    if (_kaIsCustomServers()) return false;
+    var skip = false;
+    try {
+      var host = document.getElementById('serverList');
+      var ae = document.activeElement;
+      if (host && ae && typeof host.contains === 'function' && host.contains(ae)) skip = true;
+    } catch(_) {}
+    if (skip) return false;
+    if (_kaServersSame(_kaReadServerRows(), list)) return false;
+    _kaRenderServerRows(list);
+    return true;
+  } catch(_) { return false; }
+}
+function _kaRepoSyncRun() {
+  try {
+    if (_kaRepoSyncBusy) return;
+    _kaRepoSyncBusy = true;
+    _kaRepoSawEmpty = false;
+    var syncBtn = null;
+    try { syncBtn = document.getElementById('repoSyncBtn'); } catch(_) {}
+    if (syncBtn) { try { syncBtn.disabled = true; syncBtn.textContent = 'Syncing\u2026'; } catch(_) {} }
+    _kaRepoStatus('syncing');
+    _kaRepoProbeChain(0, function(filtered) {
+      _kaRepoSyncBusy = false;
+      try { if (syncBtn) { syncBtn.disabled = false; syncBtn.textContent = 'Re-sync'; } } catch(_) {}
+      try {
+        if (filtered && filtered.length) {
+          _kaRepoCacheWrite(filtered);
+          _kaApplyRepoListIfDefault(filtered);
+          try { _kaQjReassert(); } catch(_) {}
+          _kaRepoStatus('synced');
+          try { logActivity('Launch options synced from repo loader.js (' + filtered.length + ' servers)', 'ok'); } catch(_) {}
+        } else {
+          var cache = _kaRepoCacheRead();
+          if (cache && cache.servers && cache.servers.length) {
+            _kaRepoStatus('cached');
+          } else if (_kaRepoSawEmpty) {
+            _kaRepoStatus('empty');
+          } else {
+            _kaRepoStatus('failed');
+          }
+        }
+      } catch(_) {}
+    });
+  } catch(e) {
+    _kaRepoSyncBusy = false;
+    try {
+      var sb = document.getElementById('repoSyncBtn');
+      if (sb) { sb.disabled = false; sb.textContent = 'Re-sync'; }
+    } catch(_) {}
+    try { window.__eaglerliteReportError(e, 'kaRepoSyncRun'); } catch(_) {}
+  }
+}
+function _kaEnsureRepoSyncUI() {
+  try {
+    var statusEl = document.getElementById('repoSyncStatus');
+    if (statusEl) return;
+    var insertAfter = null;
+    try {
+      var addBtn = document.getElementById('addServerBtn');
+      if (addBtn && addBtn.parentNode) insertAfter = addBtn.parentNode;
+    } catch(_) {}
+    statusEl = document.createElement('div');
+    statusEl.id = 'repoSyncStatus';
+    statusEl.style.cssText = "font:0.68rem/1.5 'Courier New',monospace;color:var(--muted);margin-top:0.7rem;";
+    statusEl.textContent = 'Launch options: checking repo loader.js...';
+    var bar = document.createElement('div');
+    bar.style.cssText = 'display:flex;gap:0.4rem;flex-wrap:wrap;margin-top:0.5rem;';
+    var defs = [
+      ['repoSyncBtn', 'Re-sync'],
+      ['copyOptsBtn', 'Copy Launch Options'],
+      ['pasteOptsBtn', 'Paste Launch Options']
+    ];
+    for (var i = 0; i < defs.length; i++) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'mini-btn';
+      b.id = defs[i][0];
+      b.textContent = defs[i][1];
+      bar.appendChild(b);
+    }
+    var cont = document.createElement('div');
+    cont.appendChild(statusEl);
+    cont.appendChild(bar);
+    if (insertAfter && insertAfter.parentNode) {
+      insertAfter.parentNode.insertBefore(cont, insertAfter.nextSibling);
+    } else {
+      var sl = document.getElementById('serverList');
+      if (sl && sl.parentNode) sl.parentNode.appendChild(cont);
+    }
+  } catch(_) {}
+}
+function _kaEnsureOptsPasteModal() {
+  try {
+    var m = document.getElementById('optsPasteModal');
+    if (m) return;
+    m = document.createElement('div');
+    m.className = 'modal-overlay hidden';
+    m.id = 'optsPasteModal';
+    var box = document.createElement('div');
+    box.className = 'modal-box';
+    box.style.maxWidth = '460px';
+    box.style.textAlign = 'left';
+    var h = document.createElement('h3');
+    h.textContent = 'Paste Launch Options';
+    h.style.color = 'var(--text)';
+    var p = document.createElement('p');
+    p.style.textAlign = 'left';
+    p.textContent = 'Paste a launch options string copied from the other EaglerLite edition (it starts with EAGLERLITE-OPTS-v2:) to import its servers, toggles, zoom FOV, quick-join server and theme.';
+    var ta = document.createElement('textarea');
+    ta.id = 'optsPasteText';
+    ta.setAttribute('rows', '7');
+    ta.setAttribute('spellcheck', 'false');
+    ta.setAttribute('placeholder', 'EAGLERLITE-OPTS-v2:...');
+    ta.style.cssText = "width:100%;min-height:110px;padding:0.55rem;background:var(--surf2);border:1px solid var(--border);border-radius:4px;color:var(--text);font:0.7rem/1.4 'Courier New',monospace;resize:vertical;outline:none;";
+    var acts = document.createElement('div');
+    acts.className = 'modal-actions';
+    acts.style.marginTop = '0.9rem';
+    var bc = document.createElement('button');
+    bc.type = 'button';
+    bc.className = 'cfg-btn';
+    bc.id = 'optsPasteCancel';
+    bc.textContent = 'Cancel';
+    var ba = document.createElement('button');
+    ba.type = 'button';
+    ba.className = 'cfg-btn';
+    ba.id = 'optsPasteApply';
+    ba.textContent = 'Import';
+    acts.appendChild(bc);
+    acts.appendChild(ba);
+    box.appendChild(h);
+    box.appendChild(p);
+    box.appendChild(ta);
+    box.appendChild(acts);
+    m.appendChild(box);
+    var anchor = document.getElementById('kbdOverlay') || document.getElementById('resetModal');
+    if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(m, anchor.nextSibling);
+    else if (document.body) document.body.appendChild(m);
+  } catch(_) {}
+}
+function _kaOptsPasteOpen() {
+  try {
+    _kaEnsureOptsPasteModal();
+    var m = document.getElementById('optsPasteModal');
+    if (!m) return;
+    m.className = 'modal-overlay';
+    var ta = document.getElementById('optsPasteText');
+    if (ta) {
+      try { ta.value = ''; } catch(_) {}
+      try { ta.focus(); } catch(_) {}
+    }
+  } catch(_) {}
+}
+function _kaOptsPasteClose() {
+  try {
+    var m = document.getElementById('optsPasteModal');
+    if (m) m.className = 'modal-overlay hidden';
+  } catch(_) {}
+}
+function _kaCollectLaunchOptions() {
+  var payload = null;
+  try {
+    var servers = _kaServersRead();
+    var toggles = {};
+    for (var n = 1; n <= 21; n++) {
+      try {
+        var el = document.getElementById('ch' + n);
+        if (el && el.type === 'checkbox') toggles['ch' + n] = !!el.checked;
+      } catch(_) {}
+    }
+    var zoomFov = 30;
+    try {
+      var zf = document.getElementById('zoomFov');
+      if (zf && zf.value) {
+        var zn = parseInt(zf.value, 10);
+        if (!isNaN(zn) && zn >= 10 && zn <= 70) zoomFov = zn;
+      }
+    } catch(_) {}
+    var quickJoin = '';
+    try {
+      var qj = document.getElementById('quickJoinSelect');
+      if (qj) quickJoin = qj.value || '';
+    } catch(_) {}
+    var theme = 'dark';
+    try { theme = document.documentElement.getAttribute('data-theme') || 'dark'; } catch(_) {}
+    payload = { v: 2, servers: servers, toggles: toggles, zoomFov: zoomFov, quickJoin: quickJoin, theme: theme };
+  } catch(_) {}
+  return payload;
+}
+function _kaCopyOptsFallback(str) {
+  try {
+    var ta = document.createElement('textarea');
+    ta.value = str;
+    ta.style.position = 'fixed';
+    ta.style.top = '-1000px';
+    document.body.appendChild(ta);
+    ta.select();
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch(_) { ok = false; }
+    document.body.removeChild(ta);
+    if (ok) { showToast('Launch options copied \u2014 paste them into the other EaglerLite edition', 'ok'); return; }
+    var chained = false;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(str).then(function() {
+          showToast('Launch options copied \u2014 paste them into the other EaglerLite edition', 'ok');
+        }).catch(function() {
+          showToast('Copy failed \u2014 select the text and copy manually', 'err');
+        });
+        chained = true;
+      }
+    } catch(_) {}
+    if (!chained) showToast('Copy failed \u2014 select the text and copy manually', 'err');
+  } catch(e) {
+    try { showToast('Copy failed: ' + e.message, 'err'); } catch(_) {}
+  }
+}
+function _kaCopyLaunchOptions() {
+  try {
+    var payload = _kaCollectLaunchOptions();
+    if (!payload) { showToast('Copy failed: could not read launch options', 'err'); return; }
+    var str = KA_OPTS_PREFIX + JSON.stringify(payload);
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(str).then(function() {
+          showToast('Launch options copied \u2014 paste them into the other EaglerLite edition', 'ok');
+        }).catch(function() { _kaCopyOptsFallback(str); });
+        return;
+      }
+    } catch(_) {}
+    _kaCopyOptsFallback(str);
+  } catch(e) {
+    try { showToast('Copy failed: ' + e.message, 'err'); } catch(_) {}
+  }
+}
+function _kaApplyLaunchOptionsStr(str) {
+  try {
+    var text = String(str || '').trim();
+    if (!text || text.indexOf(KA_OPTS_PREFIX) !== 0) { showToast('Invalid launch options string', 'err'); return false; }
+    var obj = null;
+    try { obj = JSON.parse(text.slice(KA_OPTS_PREFIX.length)); } catch(_) { obj = null; }
+    if (!obj || typeof obj !== 'object' || obj.v !== 2) { showToast('Invalid launch options string', 'err'); return false; }
+    try {
+      var servers = _kaFilterServers(obj.servers);
+      if (servers.length > 60) {
+        servers = servers.slice(0, 60);
+        try { showToast('Imported first 60 servers', 'load'); } catch(_) {}
+      }
+      if (servers.length) {
+        _kaRenderServerRows(servers);
+        _kaMarkCustomServers();
+        _kaPersistServers(servers);
+      }
+    } catch(_) {}
+    try {
+      var cfgApply = {};
+      var hasCfg = false;
+      if (obj.toggles && typeof obj.toggles === 'object') {
+        for (var tk in obj.toggles) {
+          if (!Object.prototype.hasOwnProperty.call(obj.toggles, tk)) continue;
+          var tv = obj.toggles[tk];
+          if (tk === 'gameVersion') continue;
+          if (typeof tv !== 'boolean' && typeof tv !== 'string') continue;
+          if (typeof tv === 'string' && tv.length > 300) continue;
+          cfgApply[tk] = tv;
+          hasCfg = true;
+        }
+      }
+      if (typeof obj.zoomFov === 'number' && isFinite(obj.zoomFov)) {
+        var zv = Math.round(obj.zoomFov);
+        if (zv >= 10 && zv <= 70) { cfgApply.zoomFov = String(zv); hasCfg = true; }
+      }
+      if (cfgApply.faviconPreset && typeof cfgApply.faviconPreset === 'string') {
+        var fps = document.getElementById('faviconPreset');
+        var fpOk = false;
+        if (fps && fps.options) {
+          for (var fi = 0; fi < fps.options.length; fi++) {
+            if (fps.options[fi].value === cfgApply.faviconPreset) { fpOk = true; break; }
+          }
+        }
+        if (!fpOk) delete cfgApply.faviconPreset;
+      }
+      if (hasCfg) applyConfigToDOM(cfgApply);
+    } catch(_) {}
+    try {
+      if (typeof obj.quickJoin === 'string') {
+        var qsel = document.getElementById('quickJoinSelect');
+        if (qsel) qsel.value = obj.quickJoin;
+      }
+    } catch(_) {}
+    try {
+      if (typeof obj.theme === 'string') applyTheme(obj.theme);
+    } catch(_) {}
+    try { scheduleSave(); } catch(_) {}
+    try { logActivity('Launch options imported (cross-edition sync)', 'ok'); } catch(_) {}
+    showToast('Launch options imported', 'ok');
+    return true;
+  } catch(e) {
+    try { showToast('Invalid launch options string', 'err'); } catch(_) {}
+    return false;
+  }
+}
+try {
+  (window.__eaglerliteOnReady || function(fn) { setTimeout(function() { try { fn(); } catch(_) {} }, 0); })(function() {
+    try {
+      _kaWatchServerRowEdits();
+      _kaEnsureRepoSyncUI();
+      _kaEnsureOptsPasteModal();
+      try {
+        var _kaSrvHost = document.getElementById('serverList');
+        if (_kaSrvHost && !_kaSrvHost.__eagKaHostWatched) {
+          _kaSrvHost.__eagKaHostWatched = true;
+          _kaSrvHost.addEventListener('change', function() {
+            try {
+              _kaMarkCustomServers();
+              _kaPersistServers(_kaReadServerRows());
+            } catch(_) {}
+          });
+        }
+      } catch(_) {}
+      try {
+        var _kaQjRest = document.getElementById('quickJoinSelect');
+        var _kaQjSaved = safeGet('eaglerLiteQuickJoinKA_v1', '');
+        if (_kaQjRest && _kaQjSaved) { try { _kaQjRest.value = _kaQjSaved; } catch(_) {} }
+      } catch(_) {}
+      try { window.__eaglerliteBindClick('repoSyncBtn', function() { _kaRepoSyncRun(); }); } catch(_) {}
+      try { window.__eaglerliteBindClick('copyOptsBtn', function() { _kaCopyLaunchOptions(); }); } catch(_) {}
+      try { window.__eaglerliteBindClick('pasteOptsBtn', function() { _kaOptsPasteOpen(); }); } catch(_) {}
+      try { window.__eaglerliteBindClick('optsPasteCancel', function() { _kaOptsPasteClose(); }); } catch(_) {}
+      try { window.__eaglerliteBindClick('optsPasteApply', function() {
+        try {
+          var ta = document.getElementById('optsPasteText');
+          var appliedOk = _kaApplyLaunchOptionsStr(ta ? (ta.value || '') : '');
+          if (appliedOk) _kaOptsPasteClose();
+        } catch(_) {}
+      }); } catch(_) {}
+      try {
+        var _kaPasteM = document.getElementById('optsPasteModal');
+        if (_kaPasteM) _kaPasteM.addEventListener('click', function(e) {
+          try { if (e.target === _kaPasteM) _kaOptsPasteClose(); } catch(_) {}
+        });
+      } catch(_) {}
+      try { document.addEventListener('keydown', function(e) {
+        try {
+          var m = document.getElementById('optsPasteModal');
+          if (!m || m.className.indexOf('hidden') !== -1) return;
+          if (e.key === 'Escape' || e.keyCode === 27) {
+            try { if (e.preventDefault) e.preventDefault(); } catch(_) {}
+            try { e.stopPropagation(); } catch(_) {}
+            _kaOptsPasteClose();
+            return;
+          }
+          if ((e.key === 'Enter') && (e.ctrlKey || e.metaKey)) {
+            try { if (e.preventDefault) e.preventDefault(); } catch(_) {}
+            try { e.stopPropagation(); } catch(_) {}
+            var ta = document.getElementById('optsPasteText');
+            var ok = _kaApplyLaunchOptionsStr(ta ? (ta.value || '') : '');
+            if (ok) _kaOptsPasteClose();
+          }
+        } catch(_) {}
+      }, true); } catch(_) {}
+      var bootCache = _kaRepoCacheRead();
+      if (bootCache && bootCache.servers && bootCache.servers.length) {
+        _kaApplyRepoListIfDefault(bootCache.servers);
+        try { _kaQjReassert(); } catch(_) {}
+        _kaRepoStatus('cached');
+        if ((Date.now() - bootCache.t) >= KA_REPO_CACHE_TTL) _kaRepoSyncRun();
+      } else {
+        _kaRepoSyncRun();
+      }
+    } catch(e) {
+      try { window.__eaglerliteReportError(e, 'kaOptsSyncInit'); } catch(_) {}
+    }
+  });
+} catch(_) {}
+
 var PROFILES_KEY = 'eaglerLiteProfiles_v2';
 function loadProfiles() {
   try { return JSON.parse(safeGet(PROFILES_KEY, '{}') || '{}'); }
@@ -2216,12 +2975,27 @@ try { window.__eaglerliteBindClick('loadProfileBtn', function() {
   showToast('Profile "' + name + '" loaded');
   logActivity('Profile loaded: ' + name, 'ok');
 }); } catch(_) {}
+var _kaDelArm = '';
 try { window.__eaglerliteBindClick('deleteProfileBtn', function() {
+  var btn = document.getElementById('deleteProfileBtn');
   var selEl = document.getElementById('profileSelect');
   if (!selEl) { showToast('Profile selector unavailable - reload the page'); return; }
   var name = selEl.value;
   if (!name) { showToast('Choose a profile first'); return; }
-  if (!confirm('Delete profile "' + name + '"?')) return;
+  if (_kaDelArm !== name) {
+    _kaDelArm = name;
+    if (btn) btn.textContent = 'Confirm delete?';
+    setTimeout(function() {
+      try {
+        if (_kaDelArm !== name) return;
+        _kaDelArm = '';
+        if (btn) btn.textContent = 'Delete';
+      } catch(_) {}
+    }, 3000);
+    return;
+  }
+  _kaDelArm = '';
+  if (btn) btn.textContent = 'Delete';
   var profiles = loadProfiles();
   delete profiles[name];
   saveProfiles(profiles);
@@ -2295,15 +3069,28 @@ try { window.__eaglerliteBindClick('copyAutolaunchBtn', function() {
     input.select();
     var ok = false;
     try { ok = document.execCommand('copy'); } catch(_) { ok = false; }
-    if (!ok) {
-      try { navigator.clipboard.writeText(url); ok = true; } catch(_) {}
-    }
     document.body.removeChild(input);
     if (ok) {
       showToast('Launch URL copied to clipboard');
       logActivity('Launch URL copied', 'ok');
-    } else {
-      showToast('Copy failed - clipboard unavailable');
+      return;
+    }
+    var chained = false;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).then(function() {
+          showToast('Launch URL copied to clipboard');
+          logActivity('Launch URL copied', 'ok');
+        }).catch(function() {
+          showToast('Copy failed \u2014 select the text and copy manually', 'err');
+          logActivity('Copy URL failed: clipboard denied', 'err');
+        });
+        chained = true;
+      }
+    } catch(_) {}
+    if (!chained) {
+      showToast('Copy failed \u2014 select the text and copy manually', 'err');
+      logActivity('Copy URL failed: clipboard unavailable', 'err');
     }
   } catch(err) {
     showToast('Copy failed: ' + err.message);
@@ -2371,9 +3158,12 @@ function toggleKbdOverlay() {
   o.classList.toggle('hidden');
 }
 try { window.__eaglerliteBindClick('kbdCloseBtn', toggleKbdOverlay); } catch(_) {}
-try { window.__eaglerliteBindEvent('kbdOverlay', 'click', function(e) {
-  if (e.target === this) toggleKbdOverlay();
-}); } catch(_) {}
+try {
+  var _kaKbdO = document.getElementById('kbdOverlay');
+  if (_kaKbdO) _kaKbdO.addEventListener('click', function(e) {
+    try { if (e.target === _kaKbdO) toggleKbdOverlay(); } catch(_) {}
+  });
+} catch(_) {}
 
 (function() {
   var search = document.getElementById('toggleSearch');
@@ -2497,12 +3287,11 @@ function b64DecodeUnicode(str) {
         if (typeof launchGame === 'function') launchGame();
         else { var btn = document.getElementById('launchBtn'); if (btn) btn.click(); }
       } catch (e) {
-        try { console.error('[EaglerLite v2.1 AutoLaunch] Auto-launch error:', e); } catch (_) {}
         try { window.__eaglerliteReportError(e, 'autolaunch'); } catch(_) {}
       }
     }, 100);
   } catch (e) {
-    try { console.error('[EaglerLite v2.1 AutoLaunch] Snippet error:', e); } catch (_) {}
+    try { window.__eaglerliteReportError(e, 'autolaunch.snippet'); } catch(_) {}
   }
 })();
 
